@@ -22,9 +22,8 @@ class VideoAnalyzer:
 
     def extract_metadata(self, video_path: str) -> None:
         video = mp.VideoFileClip(video_path)
-        # print(f"{video=}")
 
-        size_in_byte = os.path.getsize(video_path) # need to trans this to MB or GB
+        size_in_byte = os.path.getsize(video_path)
         if size_in_byte < 1024:
             size = str(size_in_byte) + " bytes"
         elif size_in_byte < 1024 * 1024:
@@ -101,20 +100,13 @@ class VideoAnalyzer:
         thumbnails = []
         total_duration = video.duration
         print(f"Total duration: {total_duration}")
-        max_thumbnails = (
-            16 if total_duration > 160 * 60 else int(total_duration / 600) + 1
-        )
-        interval = max(
-            1, total_duration // max_thumbnails
-        )  # Ensure at least one second interval
 
-        for i in range(max_thumbnails):
-            t = min(i * interval, total_duration - 1)  # Ensure we don't exceed duration
+        for i, time in enumerate(self._generate_sequence(total_duration)):
             filename = os.path.basename(video_path)
             directory = os.path.dirname(video_path)
             os.makedirs(f"{directory}/thumbnail", exist_ok=True)
             thumbnail_path = f"{directory}/thumbnail/{filename}_thumb_{i + 1}.jpg"
-            video.save_frame(thumbnail_path, t=t)  # Save frame at calculated time
+            video.save_frame(thumbnail_path, t=time)  # Save frame at calculated time
             thumbnails.append(thumbnail_path)
 
         return thumbnails
@@ -147,6 +139,30 @@ class VideoAnalyzer:
 
         pdf.output(output_path)
 
+    def _generate_sequence(self, initial_number: float) -> List[int]:
+        """
+        Generate a sequence of numbers based on the initial number.
+
+        Args:
+            initial_number (float): The initial number to generate the sequence from
+        """
+        # 最多的数字个数为16
+        max_numbers = 16
+        # 每增加10分钟，数列中多一个数字
+        increment = 600
+
+        # 根据初始数字计算生成数字的个数
+        num_count = int(min(max_numbers, max(1, initial_number // increment)))
+
+        # 计算步长，使得数列均匀分布在初始数字区间中
+        step = initial_number / (num_count + 1)
+
+        # 生成数列
+        sequence = [int((i + 1) * step) for i in range(num_count)]
+        print("capture at: ", sequence)
+
+        return sequence
+
     def _add_report_header(self, pdf: FPDF) -> None:
         """Add the report header to the PDF.
 
@@ -156,7 +172,7 @@ class VideoAnalyzer:
         pdf.add_page()
         # pdf.insert_toc_placeholder(lambda toc: toc)
         pdf.set_font("msyh", size=16, style="B")
-        pdf.cell(0, 10, "Video Analysis Report", ln=True, align="C")
+        pdf.cell(0, 10, "VideoThumb Report", ln=True, align="C")
         pdf.set_section_title_styles(
             TextStyle(
                 font_family="msyh",
@@ -248,7 +264,7 @@ class VideoAnalyzer:
 
 
 if __name__ == "__main__":
-    BASE_DIRECTORY = "X:/AVcollection/套装/大塚咲"
+    BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
     # BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
     output_pdf = f"{BASE_DIRECTORY}/report.pdf"  # Predefined output PDF path
 
