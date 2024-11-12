@@ -7,6 +7,11 @@ from typing import List, Dict, Tuple
 
 
 class VideoAnalyzer:
+    """
+    Generate a PDF report with video metadata and thumbnails
+    from base directory for all videos in subdirectories
+    """
+
     def __init__(self, directory: str):
         self.directory = directory
         self.video_data: List[Dict[str, str | Tuple[int, int] | List[str]]] = []
@@ -22,6 +27,7 @@ class VideoAnalyzer:
 
     def extract_metadata(self, video_path: str) -> None:
         video = mp.VideoFileClip(video_path)
+        print(f"{video_path=}")
 
         size_in_byte = os.path.getsize(video_path)
         if size_in_byte < 1024:
@@ -62,8 +68,8 @@ class VideoAnalyzer:
     def get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
         command = [
             "ffprobe",
-            "-v",
-            "error",
+            # "-v",
+            # "error",
             "-show_streams",
             # "v:1,a:1",
             "-show_entries",
@@ -73,14 +79,23 @@ class VideoAnalyzer:
             video_path,
         ]
         result = subprocess.run(
-            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
         )
         streams = json.loads(result.stdout).get("streams", [])
-        # print(f"{video_path=}\n{streams=}")
+
         video_codec = streams[0]["codec_name"] if len(streams) > 0 else "Unknown"
         audio_codec = streams[1]["codec_name"] if len(streams) > 1 else "No audio"
         bit_rate_string = (
             streams[0].get("bit_rate", "Unknown") if len(streams) > 0 else "Unknown"
+        )
+        bit_rate_string = (
+            streams[0]["tags"].get("BPS", "Unknown")
+            if bit_rate_string == "Unknown"
+            else bit_rate_string
         )
         bit_rate = (
             str(int(bit_rate_string) // 1000) + "kbps"
@@ -104,8 +119,8 @@ class VideoAnalyzer:
         for i, time in enumerate(self._generate_sequence(total_duration)):
             filename = os.path.basename(video_path)
             directory = os.path.dirname(video_path)
-            os.makedirs(f"{directory}/thumbnail", exist_ok=True)
-            thumbnail_path = f"{directory}/thumbnail/{filename}_thumb_{i + 1}.jpg"
+            os.makedirs(f"{directory}/thumbnails", exist_ok=True)
+            thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{i + 1}.jpg"
             video.save_frame(thumbnail_path, t=time)  # Save frame at calculated time
             thumbnails.append(thumbnail_path)
 
@@ -146,13 +161,11 @@ class VideoAnalyzer:
         Args:
             initial_number (float): The initial number to generate the sequence from
         """
-        # 最多的数字个数为16
-        max_numbers = 16
-        # 每增加10分钟，数列中多一个数字
-        increment = 600
 
         # 根据初始数字计算生成数字的个数
-        num_count = int(min(max_numbers, max(1, initial_number // increment)))
+        num_count = int(
+            min(MAX_THUMBNAILS_COUNT, max(1, initial_number // INCREMENT_BY_SECONDS))
+        )
 
         # 计算步长，使得数列均匀分布在初始数字区间中
         step = initial_number / (num_count + 1)
@@ -194,7 +207,7 @@ class VideoAnalyzer:
             pdf (FPDF): The PDF document object
             video (dict): Dictionary containing video metadata
         """
-        pdf.ln(10)
+        pdf.ln()
         pdf.set_font("msyh", size=10)
         with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2)) as table:
             row = table.row()
@@ -264,8 +277,13 @@ class VideoAnalyzer:
 
 
 if __name__ == "__main__":
-    BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
+    BASE_DIRECTORY = "V:/剧集精选/RIPLEY (2024)"
     # BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
+    # 最多的数字个数为16
+    MAX_THUMBNAILS_COUNT = 16
+    # 每增加10分钟，数列中多一个数字
+    INCREMENT_BY_SECONDS = 600
+
     output_pdf = f"{BASE_DIRECTORY}/report.pdf"  # Predefined output PDF path
 
     analyzer = VideoAnalyzer(BASE_DIRECTORY)
