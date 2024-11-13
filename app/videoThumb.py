@@ -7,22 +7,21 @@ import json
 from typing import List, Dict, Tuple
 import argparse
 
+from pydantic import BaseModel
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(
-        description="VideoThumb - a thumbnails parser for videos."
-    )
-    parser.add_argument(
-        "-b",
-        "--base",
-        required=False,
-        help="Base path of the video folder, if not present, the base path would be './videos'.",
-    )
-    # parser.add_argument(
-    #     "-o", "--output", required=True, help="Path to the output PDF file"
-    # )
-    args = parser.parse_args()
-    return args
+DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]
+
+
+class VideoData(BaseModel):
+    path: str
+    size: str
+    duration: float
+    resolution: Tuple[int, int]
+    bitrate: str
+    fps: float
+    video_codec: str
+    audio_codec: str
+    thumbnails: List[str]
 
 
 class VideoAnalyzer:
@@ -33,56 +32,81 @@ class VideoAnalyzer:
 
     def __init__(self, directory: str):
         self.directory = directory
-        self.video_data: List[Dict[str, str | Tuple[int, int] | List[str]]] = []
+        self.video_data: List[VideoData] = []
 
     def analyze_videos(self) -> None:
         for root, _, files in os.walk(self.directory):
             for file in files:
-                if file.lower().endswith(
-                    (".mp4", ".avi", ".mov", ".mkv", ".wmv", "m4v")
-                ):
+                if file.lower().endswith(tuple(SUPPORTED_FORMATS)):
                     video_path = os.path.join(root, file)
                     self.extract_metadata(video_path.replace("\\", "/"))
 
     def extract_metadata(self, video_path: str) -> None:
-        video = mp.VideoFileClip(video_path)
-        print(f"{video_path=}")
+        try:
+            video = mp.VideoFileClip(video_path)
+            print(f"{video_path=}")
 
-        size_in_byte = os.path.getsize(video_path)
-        if size_in_byte < 1024:
-            size = str(size_in_byte) + " bytes"
-        elif size_in_byte < 1024 * 1024:
-            size = str(round(size_in_byte / 1024, 3)) + " KB"
-        elif size_in_byte < 1024 * 1024 * 1024:
-            size = str(round(size_in_byte / (1024 * 1024), 3)) + " MB"
-        else:
-            size = str(round(size_in_byte / (1024 * 1024 * 1024), 3)) + " GB"
+            # get file size
+            size = self._format_size(os.path.getsize(video_path))
 
-        duration = video.duration
-        resolution: Tuple[int, int] = video.size
-        fps = round(video.fps, 3)
+            duration = video.duration
+            resolution: Tuple[int, int] = video.size
+            fps = round(video.fps, 3)
 
-        # Get codec and bitrate using ffprobe
-        ffprobe_output = self.get_ffprobe_metadata(video_path)
-        video_codec = ffprobe_output.get("video_codec", "Unknown")
-        audio_codec = ffprobe_output.get("audio_codec", "No audio")
-        bitrate = ffprobe_output.get("bit_rate", "Unknown")
+            # Get codec and bitrate using ffprobe
+            ffprobe_output = self.get_ffprobe_metadata(video_path)
+            video_codec = ffprobe_output.get("video_codec", "Unknown")
+            audio_codec = ffprobe_output.get("audio_codec", "No audio")
+            bitrate = ffprobe_output.get("bit_rate", "Unknown")
 
-        thumbnails = self.generate_thumbnails(video, video_path)
+            thumbnails = self.generate_thumbnails(video, video_path)
 
-        self.video_data.append(
-            {
-                "path": video_path,
-                "size": size,
-                "duration": duration,
-                "resolution": resolution if resolution else (0, 0),  # This is a tuple
-                "bitrate": bitrate,
-                "fps": fps,
-                "video_codec": video_codec,
-                "audio_codec": audio_codec,
-                "thumbnails": thumbnails,
-            }
-        )
+            data = VideoData(
+                path=video_path,
+                size=size,
+                duration=duration,
+                resolution=resolution,
+                bitrate=bitrate,
+                fps=fps,
+                video_codec=video_codec,
+                audio_codec=audio_codec,
+                thumbnails=thumbnails,
+            )
+
+            self.video_data.append(data)
+        except Exception as e:
+            print(f"Error processing {video_path}: {e}")
+        # video = mp.VideoFileClip(video_path)
+        # print(f"{video_path=}")
+
+        # # get file size
+        # size = self._format_size(os.path.getsize(video_path))
+
+        # duration = video.duration
+        # resolution: Tuple[int, int] = video.size
+        # fps = round(video.fps, 3)
+
+        # # Get codec and bitrate using ffprobe
+        # ffprobe_output = self.get_ffprobe_metadata(video_path)
+        # video_codec = ffprobe_output.get("video_codec", "Unknown")
+        # audio_codec = ffprobe_output.get("audio_codec", "No audio")
+        # bitrate = ffprobe_output.get("bit_rate", "Unknown")
+
+        # thumbnails = self.generate_thumbnails(video, video_path)
+
+        # data = VideoData(
+        #     path=video_path,
+        #     size=size,
+        #     duration=duration,
+        #     resolution=resolution,
+        #     bitrate=bitrate,
+        #     fps=fps,
+        #     video_codec=video_codec,
+        #     audio_codec=audio_codec,
+        #     thumbnails=thumbnails,
+        # )
+
+        # self.video_data.append(data)
 
     def get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
         command = [
@@ -108,19 +132,8 @@ class VideoAnalyzer:
 
         video_codec = streams[0]["codec_name"] if len(streams) > 0 else "Unknown"
         audio_codec = streams[1]["codec_name"] if len(streams) > 1 else "No audio"
-        bit_rate_string = (
-            streams[0].get("bit_rate", "Unknown") if len(streams) > 0 else "Unknown"
-        )
-        bit_rate_string = (
-            streams[0]["tags"].get("BPS", "Unknown")
-            if bit_rate_string == "Unknown"
-            else bit_rate_string
-        )
-        bit_rate = (
-            str(int(bit_rate_string) // 1000) + "kbps"
-            if bit_rate_string != "Unknown"
-            else "Unknown"
-        )
+
+        bit_rate = self._get_bit_rate(streams)
 
         return {
             "video_codec": video_codec,
@@ -163,15 +176,11 @@ class VideoAnalyzer:
 
         for video in self.video_data:
             pdf.set_font(family="msyh", style="", size=12)
-            title = str(video["path"]).split("/")[-1]
+            title = video.path.split("/")[-1]
             pdf.start_section(title, level=0)
+
             self._add_video_metadata(pdf, video)
-            thumbnails = (
-                video["thumbnails"]
-                if isinstance(video["thumbnails"], list)
-                else ["something wrong"]
-            )
-            self._add_thumbnail_table(pdf, thumbnails)
+            self._add_thumbnail_table(pdf, video.thumbnails)
             pdf.ln(2)  # Add space between videos
 
         pdf.output(output_path)
@@ -230,7 +239,7 @@ class VideoAnalyzer:
         )
         pdf.set_text_color(50)
 
-    def _add_video_metadata(self, pdf: FPDF, video: dict) -> None:
+    def _add_video_metadata(self, pdf: FPDF, video: VideoData) -> None:
         """Add video metadata section to the PDF.
 
         Args:
@@ -242,25 +251,25 @@ class VideoAnalyzer:
         with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2, 1, 2)) as table:
             row = table.row()
             row.cell("Video Path")
-            row.cell(video["path"], colspan=3)
+            row.cell(video.path, colspan=3)
             row.cell("Size")
-            row.cell(video["size"])
+            row.cell(video.size)
 
             row = table.row()
             row.cell("Duration")
-            row.cell(f"{int(video["duration"] // 60)} minutes")
+            row.cell(f"{video.duration // 60} minutes")
             row.cell("Resolution")
-            row.cell(f"{video["resolution"][0]}x{video["resolution"][1]}")
+            row.cell(f"{video.resolution[0]}x{video.resolution[1]}")
             row.cell("Bitrate")
-            row.cell(video["bitrate"])
+            row.cell(video.bitrate)
 
             row = table.row()
             row.cell("FPS")
-            row.cell(str(video["fps"]))
+            row.cell(str(video.fps))
             row.cell("Video Codec")
-            row.cell(video["video_codec"])
+            row.cell(video.video_codec)
             row.cell("Audio Codec")
-            row.cell(video["audio_codec"])
+            row.cell(video.audio_codec)
 
     def _add_thumbnail_table(self, pdf: FPDF, thumbnails: list) -> None:
         """Add a table of thumbnails to the PDF.
@@ -301,6 +310,50 @@ class VideoAnalyzer:
         # Reset the table data structure
         table_data.clear()
 
+    def _get_bit_rate(self, streams: list) -> str:
+        bit_rate = streams[0].get("bit_rate", "Unknown") if streams else "Unknown"
+
+        if bit_rate == "Unknown":
+            bit_rate = streams[0].get("tags", {}).get("BPS", "Unknown")
+
+        if bit_rate != "Unknown":
+            bit_rate = f"{int(bit_rate) // 1000}kbps"
+
+        return bit_rate
+
+    def _format_size(self, size_in_bytes):
+        if size_in_bytes < 1024:
+            return f"{size_in_bytes} bytes"
+        elif size_in_bytes < 1024 * 1024:
+            return f"{round(size_in_bytes / 1024, 3)} KB"
+        elif size_in_bytes < 1024 * 1024 * 1024:
+            return f"{round(size_in_bytes / (1024 * 1024), 3)} MB"
+        else:
+            return f"{round(size_in_bytes / (1024 * 1024 * 1024), 3)} GB"
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="VideoThumb - a thumbnails parser for videos."
+    )
+    parser.add_argument(
+        "-b",
+        "--base",
+        required=False,
+        help="Base path of the video folder, if not present, the base path would be './videos'.",
+    )
+    parser.add_argument(
+        "-e",
+        "--extension",
+        required=False,
+        help=f"add more filename extensions to parse as a video, default extension is {DEFAULT_FORMATS}, you could add a list like '-e webv,webp,...'.",
+    )
+    # parser.add_argument(
+    #     "-o", "--output", required=True, help="Path to the output PDF file"
+    # )
+    args = parser.parse_args()
+    return args
+
 
 if __name__ == "__main__":
     args = parse_arguments()
@@ -313,6 +366,12 @@ if __name__ == "__main__":
     INCREMENT_BY_SECONDS = 10 * 60
     # 缩略图清晰度，默认为4，建议不要超过8，因为会完全没有必要的占用空间。
     THUMBNAILS_DENSITY = 4
+    # 支持的格式
+    SUPPORTED_FORMATS = (
+        DEFAULT_FORMATS + args.extension.split(",")
+        if args.extension
+        else DEFAULT_FORMATS
+    )
 
     # 生成当前日期字符串
     current_date = datetime.now().strftime("%Y-%m-%d")
