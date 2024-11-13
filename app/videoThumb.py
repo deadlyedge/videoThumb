@@ -1,6 +1,7 @@
 import os
 import subprocess
 import moviepy.editor as mp
+from datetime import datetime
 from fpdf import FPDF, TextStyle
 import json
 from typing import List, Dict, Tuple
@@ -134,6 +135,9 @@ class VideoAnalyzer:
         """
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_image_filter("DCTDecode")
+        pdf.oversized_images = "DOWNSCALE"
+        pdf.oversized_images_ratio = THUMBNAILS_DENSITY
         pdf.add_font("msyh", "", "c:/windows/fonts/msyh.ttc", uni=True)
         pdf.add_font("msyh", "B", "c:/windows/fonts/msyhbd.ttc", uni=True)
 
@@ -282,9 +286,14 @@ if __name__ == "__main__":
     # 最多的数字个数为16
     MAX_THUMBNAILS_COUNT = 16
     # 每增加10分钟，数列中多一个数字
-    INCREMENT_BY_SECONDS = 600
+    INCREMENT_BY_SECONDS = 10 * 60
+    # 缩略图清晰度，默认为4，建议不要超过8，因为会完全没有必要的占用空间。
+    THUMBNAILS_DENSITY = 4
 
-    output_pdf = f"{BASE_DIRECTORY}/report.pdf"  # Predefined output PDF path
+    # 生成当前日期字符串
+    current_date = datetime.now().strftime("%Y-%m-%d")
+
+    output_pdf = f"{BASE_DIRECTORY}/{BASE_DIRECTORY.split('/')[-1]}.report.{current_date}.pdf"  # Predefined output PDF path
 
     analyzer = VideoAnalyzer(BASE_DIRECTORY)
     analyzer.analyze_videos()
