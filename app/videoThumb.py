@@ -5,6 +5,24 @@ from datetime import datetime
 from fpdf import FPDF, TextStyle
 import json
 from typing import List, Dict, Tuple
+import argparse
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="VideoThumb - a thumbnails parser for videos."
+    )
+    parser.add_argument(
+        "-b",
+        "--base",
+        required=False,
+        help="Base path of the video folder, if not present, the base path would be './videos'.",
+    )
+    # parser.add_argument(
+    #     "-o", "--output", required=True, help="Path to the output PDF file"
+    # )
+    args = parser.parse_args()
+    return args
 
 
 class VideoAnalyzer:
@@ -187,22 +205,30 @@ class VideoAnalyzer:
             pdf (FPDF): The PDF document object
         """
         pdf.add_page()
-        # pdf.insert_toc_placeholder(lambda toc: toc)
         pdf.set_font("msyh", size=16, style="B")
         pdf.cell(0, 10, "VideoThumb Report", ln=True, align="C")
+        pdf.set_text_color(100)
+        pdf.set_font(size=6)
+        pdf.cell(
+            0,
+            2,
+            f"Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, for '{BASE_DIRECTORY}'",
+            ln=True,
+            align="C",
+        )
         pdf.set_section_title_styles(
             TextStyle(
                 font_family="msyh",
                 font_style="B",
-                font_size_pt=16,
-                color=128,
+                font_size_pt=14,
+                color=(255, 152, 0),
                 underline=True,
                 t_margin=10,
                 l_margin=10,
                 b_margin=0,
             )
         )
-        pdf.ln()
+        pdf.set_text_color(50)
 
     def _add_video_metadata(self, pdf: FPDF, video: dict) -> None:
         """Add video metadata section to the PDF.
@@ -212,33 +238,29 @@ class VideoAnalyzer:
             video (dict): Dictionary containing video metadata
         """
         pdf.ln()
-        pdf.set_font("msyh", size=10)
-        with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2)) as table:
+        pdf.set_font(size=8)
+        with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2, 1, 2)) as table:
             row = table.row()
             row.cell("Video Path")
             row.cell(video["path"], colspan=3)
+            row.cell("Size")
+            row.cell(video["size"])
 
             row = table.row()
             row.cell("Duration")
             row.cell(f"{int(video["duration"] // 60)} minutes")
             row.cell("Resolution")
             row.cell(f"{video["resolution"][0]}x{video["resolution"][1]}")
-
-            row = table.row()
             row.cell("Bitrate")
             row.cell(video["bitrate"])
-            row.cell("FPS")
-            row.cell(str(video["fps"]))
 
             row = table.row()
+            row.cell("FPS")
+            row.cell(str(video["fps"]))
             row.cell("Video Codec")
             row.cell(video["video_codec"])
             row.cell("Audio Codec")
             row.cell(video["audio_codec"])
-
-            row = table.row()
-            row.cell("Size")
-            row.cell(video["size"])
 
     def _add_thumbnail_table(self, pdf: FPDF, thumbnails: list) -> None:
         """Add a table of thumbnails to the PDF.
@@ -281,7 +303,9 @@ class VideoAnalyzer:
 
 
 if __name__ == "__main__":
-    BASE_DIRECTORY = "V:/剧集精选/RIPLEY (2024)"
+    args = parse_arguments()
+
+    BASE_DIRECTORY = args.base.replace("\\", "/") if args.base else "./videos"
     # BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
     # 最多的数字个数为16
     MAX_THUMBNAILS_COUNT = 16
