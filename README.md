@@ -9,3 +9,7 @@ ffmpeg need to be installed, and ffprobe.exe should be in PATH, choco is recomma
 # thanks
 
 micorsoft copilot
+
+# todo
+
+add a progress bar

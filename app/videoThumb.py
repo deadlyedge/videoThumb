@@ -22,6 +22,7 @@ class VideoData(BaseModel):
     video_codec: str
     audio_codec: str
     thumbnails: List[str]
+    failed: bool = True
 
 
 class VideoAnalyzer:
@@ -71,42 +72,25 @@ class VideoAnalyzer:
                 video_codec=video_codec,
                 audio_codec=audio_codec,
                 thumbnails=thumbnails,
+                failed=False,
             )
 
             self.video_data.append(data)
         except Exception as e:
+            data = VideoData(
+                path=video_path,
+                size=self._format_size(os.path.getsize(video_path)),
+                duration=0,
+                resolution=(0, 0),
+                bitrate="Unknown",
+                fps=0,
+                video_codec="Unknown",
+                audio_codec="Unknown",
+                thumbnails=[],
+                failed=True,
+            )
+            self.video_data.append(data)
             print(f"Error processing {video_path}: {e}")
-        # video = mp.VideoFileClip(video_path)
-        # print(f"{video_path=}")
-
-        # # get file size
-        # size = self._format_size(os.path.getsize(video_path))
-
-        # duration = video.duration
-        # resolution: Tuple[int, int] = video.size
-        # fps = round(video.fps, 3)
-
-        # # Get codec and bitrate using ffprobe
-        # ffprobe_output = self.get_ffprobe_metadata(video_path)
-        # video_codec = ffprobe_output.get("video_codec", "Unknown")
-        # audio_codec = ffprobe_output.get("audio_codec", "No audio")
-        # bitrate = ffprobe_output.get("bit_rate", "Unknown")
-
-        # thumbnails = self.generate_thumbnails(video, video_path)
-
-        # data = VideoData(
-        #     path=video_path,
-        #     size=size,
-        #     duration=duration,
-        #     resolution=resolution,
-        #     bitrate=bitrate,
-        #     fps=fps,
-        #     video_codec=video_codec,
-        #     audio_codec=audio_codec,
-        #     thumbnails=thumbnails,
-        # )
-
-        # self.video_data.append(data)
 
     def get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
         command = [
@@ -237,7 +221,6 @@ class VideoAnalyzer:
                 b_margin=0,
             )
         )
-        pdf.set_text_color(50)
 
     def _add_video_metadata(self, pdf: FPDF, video: VideoData) -> None:
         """Add video metadata section to the PDF.
@@ -248,12 +231,20 @@ class VideoAnalyzer:
         """
         pdf.ln()
         pdf.set_font(size=8)
+        pdf.set_text_color(50)
         with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2, 1, 2)) as table:
             row = table.row()
             row.cell("Video Path")
             row.cell(video.path, colspan=3)
             row.cell("Size")
             row.cell(video.size)
+
+            if video.failed:
+                row = table.row()
+                pdf.set_font(size=12, style="B")
+                pdf.set_text_color(255, 0, 0)
+                row.cell("VIDEO FILE IS BROKEN PROBABLY!", colspan=6)
+                return
 
             row = table.row()
             row.cell("Duration")
@@ -362,8 +353,8 @@ if __name__ == "__main__":
     # BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
     # 最多的数字个数为16
     MAX_THUMBNAILS_COUNT = 16
-    # 每增加10分钟，数列中多一个数字
-    INCREMENT_BY_SECONDS = 10 * 60
+    # 每增加5分钟，数列中多一个数字
+    INCREMENT_BY_SECONDS = 8 * 60
     # 缩略图清晰度，默认为4，建议不要超过8，因为会完全没有必要的占用空间。
     THUMBNAILS_DENSITY = 4
     # 支持的格式
