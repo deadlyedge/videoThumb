@@ -1,11 +1,14 @@
 import os
 import subprocess
+import concurrent.futures
 import moviepy.editor as mp
 from datetime import datetime
 from fpdf import FPDF, TextStyle
+from tqdm import tqdm
 import json
 from typing import List, Dict, Tuple
 import argparse
+import psutil
 
 from pydantic import BaseModel
 
@@ -22,7 +25,7 @@ class VideoData(BaseModel):
     video_codec: str
     audio_codec: str
     thumbnails: List[str]
-    failed: bool = True
+    failed_reason: str = ""
 
 
 class VideoAnalyzer:
@@ -35,17 +38,30 @@ class VideoAnalyzer:
         self.directory = directory
         self.video_data: List[VideoData] = []
 
+    def _check_memory(self):
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        self.pbar.write(
+            f"Memory usage: {memory_info.rss / (1024 * 1024):.2f} MB"
+        )  # Log memory usage
+
     def analyze_videos(self) -> None:
+        video_files = []
         for root, _, files in os.walk(self.directory):
             for file in files:
                 if file.lower().endswith(tuple(SUPPORTED_FORMATS)):
-                    video_path = os.path.join(root, file)
-                    self.extract_metadata(video_path.replace("\\", "/"))
+                    video_path = os.path.join(root, file).replace("\\", "/")
+                    video_files.append(video_path)
 
-    def extract_metadata(self, video_path: str) -> None:
+        self.pbar = tqdm(video_files, desc="Analyzing")
+        for video_path in self.pbar:
+            self._check_memory()
+            self._extract_metadata(video_path)
+
+    def _extract_metadata(self, video_path: str) -> None:
         try:
             video = mp.VideoFileClip(video_path)
-            print(f"{video_path=}")
+            self.pbar.write(f"{video_path=}")
 
             # get file size
             size = self._format_size(os.path.getsize(video_path))
@@ -55,12 +71,12 @@ class VideoAnalyzer:
             fps = round(video.fps, 3)
 
             # Get codec and bitrate using ffprobe
-            ffprobe_output = self.get_ffprobe_metadata(video_path)
+            ffprobe_output = self._get_ffprobe_metadata(video_path)
             video_codec = ffprobe_output.get("video_codec", "Unknown")
             audio_codec = ffprobe_output.get("audio_codec", "No audio")
             bitrate = ffprobe_output.get("bit_rate", "Unknown")
 
-            thumbnails = self.generate_thumbnails(video, video_path)
+            thumbnails = self._generate_thumbnails(video, video_path)
 
             data = VideoData(
                 path=video_path,
@@ -72,11 +88,10 @@ class VideoAnalyzer:
                 video_codec=video_codec,
                 audio_codec=audio_codec,
                 thumbnails=thumbnails,
-                failed=False,
             )
+            video.close()
 
-            self.video_data.append(data)
-        except Exception as e:
+        except Exception as error:
             data = VideoData(
                 path=video_path,
                 size=self._format_size(os.path.getsize(video_path)),
@@ -87,12 +102,22 @@ class VideoAnalyzer:
                 video_codec="Unknown",
                 audio_codec="Unknown",
                 thumbnails=[],
-                failed=True,
+                failed_reason=str(error),
             )
+            self.pbar.write(f"Error processing {video_path}: {error}")
+        finally:
             self.video_data.append(data)
-            print(f"Error processing {video_path}: {e}")
 
-    def get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
+            # 写入json文件，作为log
+            with open("data.json", "w", encoding="utf-8") as f:
+                json.dump(
+                    [data.__dict__ for data in self.video_data],
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+    def _get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
         command = [
             "ffprobe",
             # "-v",
@@ -125,19 +150,46 @@ class VideoAnalyzer:
             "bit_rate": bit_rate,
         }
 
-    def generate_thumbnails(
+    def _generate_thumbnails(
         self, video: mp.VideoFileClip, video_path: str
     ) -> List[str]:
+        def save_frame(index: int, time: int) -> str:
+            filename = os.path.basename(video_path)
+            directory = os.path.dirname(video_path)
+            os.makedirs(f"{directory}/thumbnails", exist_ok=True)
+            thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{index}.jpg"
+            video.save_frame(thumbnail_path, t=time)
+            return thumbnail_path
+
         thumbnails = []
         total_duration = video.duration
-        print(f"Total duration: {total_duration}")
+        self.pbar.write(f"Total duration: {total_duration}")
+
+        # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        #     actions = []
+        #     for index, time in enumerate(self._generate_sequence(total_duration)):
+        #         actions.append(executor.submit(save_frame, index, time))
+
+        #     for future in concurrent.futures.as_completed(actions, timeout=10):
+        #         try:
+        #             thumbnails.append(future.result())
+        #         except Exception as error:
+        #             self.pbar.write(f"Error saving thumbnail: {error}")
+        #             continue
+        #         self.pbar.write(f"Thumbnail saved: {future.result()}")
 
         for i, time in enumerate(self._generate_sequence(total_duration)):
             filename = os.path.basename(video_path)
             directory = os.path.dirname(video_path)
             os.makedirs(f"{directory}/thumbnails", exist_ok=True)
             thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{i + 1}.jpg"
-            video.save_frame(thumbnail_path, t=time)  # Save frame at calculated time
+            try:
+                video.save_frame(
+                    thumbnail_path, t=time
+                )  # Save frame at calculated time
+            except Exception as error:
+                self.pbar.write(f"Error saving thumbnail: {error}")
+                continue
             thumbnails.append(thumbnail_path)
 
         return thumbnails
@@ -187,7 +239,7 @@ class VideoAnalyzer:
 
         # 生成数列
         sequence = [int((i + 1) * step) for i in range(num_count)]
-        print("capture at: ", sequence)
+        self.pbar.write(f"capture at: {sequence}")
 
         return sequence
 
@@ -239,11 +291,12 @@ class VideoAnalyzer:
             row.cell("Size")
             row.cell(video.size)
 
-            if video.failed:
+            if video.failed_reason:
                 row = table.row()
                 pdf.set_font(size=12, style="B")
                 pdf.set_text_color(255, 0, 0)
-                row.cell("VIDEO FILE IS BROKEN PROBABLY!", colspan=6)
+                row.cell("VIDEO FILE IS BROKEN PROBABLY!", colspan=2, align="C")
+                row.cell(video.failed_reason, colspan=4)
                 return
 
             row = table.row()
@@ -281,7 +334,9 @@ class VideoAnalyzer:
                 # Check if the image exists before adding
                 row.append(normalized_thumbnail)
             except Exception as e:
-                print(f"Error loading image {thumbnail}: {e}")  # Log any errors
+                self.pbar.write(
+                    f"Error loading image {thumbnail}: {e}"
+                )  # Log any errors
 
             if (i + 1) % 4 == 0:
                 table_data.append(row)

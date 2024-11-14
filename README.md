@@ -6,10 +6,14 @@ This is a simple local video tool designed to help you organize videos efficient
 
 ffmpeg need to be installed, and ffprobe.exe should be in PATH, choco is recommanded way.
 
+# problems
+
+for some video file, process may hang up while building thumbnails, to solve that, for now, you could try to locate that file, from logs, and then rename that video by adding a prefix 'tui-'. tried, failed. try opencv next time
+
 # thanks
 
 micorsoft copilot
 
 # todo
 
-add a progress bar
+try opencv next time
