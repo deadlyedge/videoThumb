@@ -1,30 +1,117 @@
 import os
+import threading
 import subprocess
-import concurrent.futures
+
+# import cv2
+import argparse
+import json
 import moviepy.editor as mp
+
+# from shutil import copy2
 from datetime import datetime
+from typing import List, Dict, Tuple
 from fpdf import FPDF, TextStyle
 from tqdm import tqdm
-import json
-from typing import List, Dict, Tuple
-import argparse
-import psutil
-
 from pydantic import BaseModel
 
+
 DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]
+
+
+class VideoReaderWithTimeout:
+    def __init__(
+        self,
+        video_path: str,
+        index: int,
+        time: int,
+        pbar: tqdm,
+        video: mp.VideoFileClip,
+    ):
+        self.video_path = video_path
+        self.video = video
+        self.index = index
+        self.time = time
+        self.thumbnail_path = None
+        self.pbar = pbar
+
+    # def save_frame_opencv(self) -> None:
+    #     """Tried using moviepy.save_frame function to do this, but failed.
+    #     in some rare cases where the frame extraction fails, just hanging and without
+    #     any exception, so i use opencv intead, same resault and even faster.
+    #     """
+
+    #     def writeImage(path, img):
+    #         """Write image to given path, opencv can't write network drive directly"""
+    #         tmpPath = "img.jpg"
+    #         cv2.imwrite(tmpPath, img, [cv2.IMWRITE_JPEG_QUALITY, 75])
+    #         copy2(tmpPath, path)
+    #         os.remove("img.jpg")
+
+    #     filename = os.path.basename(self.video_path)
+    #     directory = os.path.dirname(self.video_path)
+    #     os.makedirs(f"{directory}/thumbnails", exist_ok=True)
+    #     thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{self.index}.jpg"
+
+    #     video = cv2.VideoCapture(
+    #         self.video_path,
+    #         apiPreference=cv2.CAP_FFMPEG,  # was previously cv2.CAP_ANY
+    #         params=[cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000],  # 2 second
+    #     )
+    #     video.setExceptionMode(True)
+    #     video.set(cv2.CAP_PROP_POS_MSEC, self.time * 1000)
+
+    #     try:
+    #         ret, frame = video.read()
+
+    #         if ret:
+    #             writeImage(thumbnail_path, frame)
+    #     except Exception as error:
+    #         self.pbar.write(f"Error processing {self.video_path}: {error}")
+    #         thumbnail_path = ""
+    #     finally:
+    #         video.release()
+
+    #     self.thumbnail_path = thumbnail_path
+
+    def save_frame(self) -> None:
+        filename = os.path.basename(self.video_path)
+        directory = os.path.dirname(self.video_path)
+        os.makedirs(f"{directory}/thumbnails", exist_ok=True)
+        thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{self.index}.jpg"
+
+        try:
+            self.video.save_frame(thumbnail_path, t=self.time)
+        except Exception as error:
+            self.pbar.write(f"Error processing {self.video_path}: {error}")
+            thumbnail_path = ""
+        self.thumbnail_path = thumbnail_path
+
+
+def read_with_timeout(video_path: str, index: int, time: int, pbar, video, timeout=5):
+    reader = VideoReaderWithTimeout(video_path, index, time, pbar, video)
+    thread = threading.Thread(target=reader.save_frame)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        # Timeout occurred
+        pbar.write(f"Timeout occurred while processing {video_path}")
+        return ""
+    else:
+        # Successfully read frame before timeout
+        return reader.thumbnail_path
 
 
 class VideoData(BaseModel):
     path: str
     size: str
-    duration: float
-    resolution: Tuple[int, int]
-    bitrate: str
-    fps: float
-    video_codec: str
-    audio_codec: str
-    thumbnails: List[str]
+    duration: float = 0.0
+    resolution: Tuple[int, int] = (0, 0)
+    bitrate: str = "Unknown"
+    fps: float = 0.0
+    video_codec: str = "Unknown"
+    audio_codec: str = "Unknown"
+    thumbnails: List[str] = []
     failed_reason: str = ""
 
 
@@ -38,14 +125,10 @@ class VideoAnalyzer:
         self.directory = directory
         self.video_data: List[VideoData] = []
 
-    def _check_memory(self):
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        self.pbar.write(
-            f"Memory usage: {memory_info.rss / (1024 * 1024):.2f} MB"
-        )  # Log memory usage
-
     def analyze_videos(self) -> None:
+        """
+        start point for analyzing videos in the specified directory
+        """
         video_files = []
         for root, _, files in os.walk(self.directory):
             for file in files:
@@ -55,39 +138,28 @@ class VideoAnalyzer:
 
         self.pbar = tqdm(video_files, desc="Analyzing")
         for video_path in self.pbar:
-            self._check_memory()
             self._extract_metadata(video_path)
 
     def _extract_metadata(self, video_path: str) -> None:
+        """
+        use moviepy to extract metadata from the video file
+        """
         try:
             video = mp.VideoFileClip(video_path)
             self.pbar.write(f"{video_path=}")
 
-            # get file size
-            size = self._format_size(os.path.getsize(video_path))
-
-            duration = video.duration
-            resolution: Tuple[int, int] = video.size
-            fps = round(video.fps, 3)
-
-            # Get codec and bitrate using ffprobe
             ffprobe_output = self._get_ffprobe_metadata(video_path)
-            video_codec = ffprobe_output.get("video_codec", "Unknown")
-            audio_codec = ffprobe_output.get("audio_codec", "No audio")
-            bitrate = ffprobe_output.get("bit_rate", "Unknown")
-
-            thumbnails = self._generate_thumbnails(video, video_path)
 
             data = VideoData(
                 path=video_path,
-                size=size,
-                duration=duration,
-                resolution=resolution,
-                bitrate=bitrate,
-                fps=fps,
-                video_codec=video_codec,
-                audio_codec=audio_codec,
-                thumbnails=thumbnails,
+                size=self._format_size(os.path.getsize(video_path)),
+                duration=video.duration,
+                resolution=video.size,
+                bitrate=ffprobe_output["bit_rate"],
+                fps=round(video.fps, 3),
+                video_codec=ffprobe_output["video_codec"],
+                audio_codec=ffprobe_output["audio_codec"],
+                thumbnails=self._generate_thumbnails(video, video_path),
             )
             video.close()
 
@@ -95,13 +167,6 @@ class VideoAnalyzer:
             data = VideoData(
                 path=video_path,
                 size=self._format_size(os.path.getsize(video_path)),
-                duration=0,
-                resolution=(0, 0),
-                bitrate="Unknown",
-                fps=0,
-                video_codec="Unknown",
-                audio_codec="Unknown",
-                thumbnails=[],
                 failed_reason=str(error),
             )
             self.pbar.write(f"Error processing {video_path}: {error}")
@@ -109,7 +174,7 @@ class VideoAnalyzer:
             self.video_data.append(data)
 
             # 写入json文件，作为log
-            with open("data.json", "w", encoding="utf-8") as f:
+            with open("analyze_log.json", "w", encoding="utf-8") as f:
                 json.dump(
                     [data.__dict__ for data in self.video_data],
                     f,
@@ -118,6 +183,19 @@ class VideoAnalyzer:
                 )
 
     def _get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
+        def get_bit_rate(streams: list) -> str:
+            if not streams:
+                return "Unknown"
+
+            # Attempt to retrieve the bit rate from the first stream
+            bit_rate = streams[0].get("bit_rate") or streams[0].get("tags", {}).get(
+                "BPS", "Unknown"
+            )
+
+            return (
+                f"{int(bit_rate) // 1000} kbps" if bit_rate != "Unknown" else "Unknown"
+            )
+
         command = [
             "ffprobe",
             # "-v",
@@ -142,7 +220,7 @@ class VideoAnalyzer:
         video_codec = streams[0]["codec_name"] if len(streams) > 0 else "Unknown"
         audio_codec = streams[1]["codec_name"] if len(streams) > 1 else "No audio"
 
-        bit_rate = self._get_bit_rate(streams)
+        bit_rate = get_bit_rate(streams)
 
         return {
             "video_codec": video_codec,
@@ -153,43 +231,37 @@ class VideoAnalyzer:
     def _generate_thumbnails(
         self, video: mp.VideoFileClip, video_path: str
     ) -> List[str]:
-        def save_frame(index: int, time: int) -> str:
-            filename = os.path.basename(video_path)
-            directory = os.path.dirname(video_path)
-            os.makedirs(f"{directory}/thumbnails", exist_ok=True)
-            thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{index}.jpg"
-            video.save_frame(thumbnail_path, t=time)
-            return thumbnail_path
+        def generate_sequence(initial_number: float) -> List[int]:
+            """
+            Generate a sequence of numbers based on the initial number.
+
+            Args:
+                initial_number (float): The initial number to generate the sequence from
+            """
+
+            # 根据初始数字计算生成数字的个数
+            num_count = int(
+                min(
+                    MAX_THUMBNAILS_COUNT, max(1, initial_number // INCREMENT_BY_SECONDS)
+                )
+            )
+
+            # 计算步长，使得数列均匀分布在初始数字区间中
+            step = initial_number / (num_count + 1)
+
+            # 生成数列
+            sequence = [int((i + 1) * step) for i in range(num_count)]
+            self.pbar.write(f"capture at: {sequence}")
+
+            return sequence
 
         thumbnails = []
         total_duration = video.duration
-        self.pbar.write(f"Total duration: {total_duration}")
+        self.pbar.write(f"Total duration: {round(total_duration/60)} min.")
 
-        # with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        #     actions = []
-        #     for index, time in enumerate(self._generate_sequence(total_duration)):
-        #         actions.append(executor.submit(save_frame, index, time))
+        for i, time in enumerate(generate_sequence(total_duration)):
+            thumbnail_path = read_with_timeout(video_path, i, time, self.pbar, video, 2)
 
-        #     for future in concurrent.futures.as_completed(actions, timeout=10):
-        #         try:
-        #             thumbnails.append(future.result())
-        #         except Exception as error:
-        #             self.pbar.write(f"Error saving thumbnail: {error}")
-        #             continue
-        #         self.pbar.write(f"Thumbnail saved: {future.result()}")
-
-        for i, time in enumerate(self._generate_sequence(total_duration)):
-            filename = os.path.basename(video_path)
-            directory = os.path.dirname(video_path)
-            os.makedirs(f"{directory}/thumbnails", exist_ok=True)
-            thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{i + 1}.jpg"
-            try:
-                video.save_frame(
-                    thumbnail_path, t=time
-                )  # Save frame at calculated time
-            except Exception as error:
-                self.pbar.write(f"Error saving thumbnail: {error}")
-                continue
             thumbnails.append(thumbnail_path)
 
         return thumbnails
@@ -220,28 +292,6 @@ class VideoAnalyzer:
             pdf.ln(2)  # Add space between videos
 
         pdf.output(output_path)
-
-    def _generate_sequence(self, initial_number: float) -> List[int]:
-        """
-        Generate a sequence of numbers based on the initial number.
-
-        Args:
-            initial_number (float): The initial number to generate the sequence from
-        """
-
-        # 根据初始数字计算生成数字的个数
-        num_count = int(
-            min(MAX_THUMBNAILS_COUNT, max(1, initial_number // INCREMENT_BY_SECONDS))
-        )
-
-        # 计算步长，使得数列均匀分布在初始数字区间中
-        step = initial_number / (num_count + 1)
-
-        # 生成数列
-        sequence = [int((i + 1) * step) for i in range(num_count)]
-        self.pbar.write(f"capture at: {sequence}")
-
-        return sequence
 
     def _add_report_header(self, pdf: FPDF) -> None:
         """Add the report header to the PDF.
@@ -284,7 +334,9 @@ class VideoAnalyzer:
         pdf.ln()
         pdf.set_font(size=8)
         pdf.set_text_color(50)
-        with pdf.table(width=int(pdf.epw), col_widths=(1, 2, 1, 2, 1, 2)) as table:
+        with pdf.table(
+            width=int(pdf.epw), col_widths=(1, 2, 1, 2, 1, 2), repeat_headings=0
+        ) as table:
             row = table.row()
             row.cell("Video Path")
             row.cell(video.path, colspan=3)
@@ -327,16 +379,8 @@ class VideoAnalyzer:
         row = []
 
         for i, thumbnail in enumerate(thumbnails):
-            try:
-                # Normalize the path for FPDF
-                normalized_thumbnail = thumbnail.replace("\\", "/")  # xdream
-
-                # Check if the image exists before adding
-                row.append(normalized_thumbnail)
-            except Exception as e:
-                self.pbar.write(
-                    f"Error loading image {thumbnail}: {e}"
-                )  # Log any errors
+            normalized_thumbnail = thumbnail.replace("\\", "/")  # xdream
+            row.append(normalized_thumbnail)
 
             if (i + 1) % 4 == 0:
                 table_data.append(row)
@@ -347,25 +391,17 @@ class VideoAnalyzer:
             table_data.append(row)
 
         # Generate the table
-        with pdf.table() as table:
+        with pdf.table(repeat_headings=0) as table:
             for i, data_row in enumerate(table_data):
                 row = table.row()
                 for j, data_cell in enumerate(data_row):
-                    row.cell(img=data_cell)
+                    if not data_cell:
+                        row.cell("failing create this thumbnail.", align="C")
+                        continue
+                    row.cell(img=data_cell, img_fill_width=True)
 
         # Reset the table data structure
         table_data.clear()
-
-    def _get_bit_rate(self, streams: list) -> str:
-        bit_rate = streams[0].get("bit_rate", "Unknown") if streams else "Unknown"
-
-        if bit_rate == "Unknown":
-            bit_rate = streams[0].get("tags", {}).get("BPS", "Unknown")
-
-        if bit_rate != "Unknown":
-            bit_rate = f"{int(bit_rate) // 1000}kbps"
-
-        return bit_rate
 
     def _format_size(self, size_in_bytes):
         if size_in_bytes < 1024:

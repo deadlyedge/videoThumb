@@ -10,10 +10,14 @@ ffmpeg need to be installed, and ffprobe.exe should be in PATH, choco is recomma
 
 for some video file, process may hang up while building thumbnails, to solve that, for now, you could try to locate that file, from logs, and then rename that video by adding a prefix 'tui-'. tried, failed. try opencv next time
 
+log: changed back to moviepy, it's slower than opencv, but with threading timeout function, it could avoid most of errors.
+
 # thanks
 
 micorsoft copilot
 
 # todo
 
-try opencv next time
+-try pdf.unbreakable() for metadata table. not work as expected.-
+
+use analyze_log for pdf gen.
