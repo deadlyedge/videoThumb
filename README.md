@@ -14,10 +14,12 @@ log: changed back to moviepy, it's slower than opencv, but with threading timeou
 
 # thanks
 
-micorsoft copilot
+micorsoft copilot and openai
 
 # todo
 
 -try pdf.unbreakable() for metadata table. not work as expected.-
 
 use analyze_log for pdf gen.
+
+remove thumbnails folder after pdf was gened.

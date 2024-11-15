@@ -1,13 +1,10 @@
 import os
 import threading
 import subprocess
-
-# import cv2
 import argparse
 import json
-import moviepy.editor as mp
 
-# from shutil import copy2
+from moviepy import editor as mp
 from datetime import datetime
 from typing import List, Dict, Tuple
 from fpdf import FPDF, TextStyle
@@ -16,6 +13,20 @@ from pydantic import BaseModel
 
 
 DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]
+DEFAULT_HANG_TIME = 3
+
+
+class VideoData(BaseModel):
+    path: str
+    size: str
+    duration: float = 0.0
+    resolution: Tuple[int, int] = (0, 0)
+    bitrate: str = "Unknown"
+    fps: float = 0.0
+    video_codec: str = "Unknown"
+    audio_codec: str = "Unknown"
+    thumbnails: List[str] = []
+    failed_reason: str = ""
 
 
 class VideoReaderWithTimeout:
@@ -34,45 +45,6 @@ class VideoReaderWithTimeout:
         self.thumbnail_path = None
         self.pbar = pbar
 
-    # def save_frame_opencv(self) -> None:
-    #     """Tried using moviepy.save_frame function to do this, but failed.
-    #     in some rare cases where the frame extraction fails, just hanging and without
-    #     any exception, so i use opencv intead, same resault and even faster.
-    #     """
-
-    #     def writeImage(path, img):
-    #         """Write image to given path, opencv can't write network drive directly"""
-    #         tmpPath = "img.jpg"
-    #         cv2.imwrite(tmpPath, img, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    #         copy2(tmpPath, path)
-    #         os.remove("img.jpg")
-
-    #     filename = os.path.basename(self.video_path)
-    #     directory = os.path.dirname(self.video_path)
-    #     os.makedirs(f"{directory}/thumbnails", exist_ok=True)
-    #     thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{self.index}.jpg"
-
-    #     video = cv2.VideoCapture(
-    #         self.video_path,
-    #         apiPreference=cv2.CAP_FFMPEG,  # was previously cv2.CAP_ANY
-    #         params=[cv2.CAP_PROP_READ_TIMEOUT_MSEC, 2000],  # 2 second
-    #     )
-    #     video.setExceptionMode(True)
-    #     video.set(cv2.CAP_PROP_POS_MSEC, self.time * 1000)
-
-    #     try:
-    #         ret, frame = video.read()
-
-    #         if ret:
-    #             writeImage(thumbnail_path, frame)
-    #     except Exception as error:
-    #         self.pbar.write(f"Error processing {self.video_path}: {error}")
-    #         thumbnail_path = ""
-    #     finally:
-    #         video.release()
-
-    #     self.thumbnail_path = thumbnail_path
-
     def save_frame(self) -> None:
         filename = os.path.basename(self.video_path)
         directory = os.path.dirname(self.video_path)
@@ -84,10 +56,18 @@ class VideoReaderWithTimeout:
         except Exception as error:
             self.pbar.write(f"Error processing {self.video_path}: {error}")
             thumbnail_path = ""
+
         self.thumbnail_path = thumbnail_path
 
 
-def read_with_timeout(video_path: str, index: int, time: int, pbar, video, timeout=5):
+def read_with_timeout(
+    video_path: str,
+    index: int,
+    time: int,
+    pbar: tqdm,
+    video: mp.VideoFileClip,
+    timeout=DEFAULT_HANG_TIME,
+):
     reader = VideoReaderWithTimeout(video_path, index, time, pbar, video)
     thread = threading.Thread(target=reader.save_frame)
     thread.start()
@@ -100,19 +80,6 @@ def read_with_timeout(video_path: str, index: int, time: int, pbar, video, timeo
     else:
         # Successfully read frame before timeout
         return reader.thumbnail_path
-
-
-class VideoData(BaseModel):
-    path: str
-    size: str
-    duration: float = 0.0
-    resolution: Tuple[int, int] = (0, 0)
-    bitrate: str = "Unknown"
-    fps: float = 0.0
-    video_codec: str = "Unknown"
-    audio_codec: str = "Unknown"
-    thumbnails: List[str] = []
-    failed_reason: str = ""
 
 
 class VideoAnalyzer:
@@ -144,6 +111,17 @@ class VideoAnalyzer:
         """
         use moviepy to extract metadata from the video file
         """
+
+        def format_size(size_in_bytes):
+            if size_in_bytes < 1024:
+                return f"{size_in_bytes} bytes"
+            elif size_in_bytes < 1024 * 1024:
+                return f"{round(size_in_bytes / 1024, 3)} KB"
+            elif size_in_bytes < 1024 * 1024 * 1024:
+                return f"{round(size_in_bytes / (1024 * 1024), 3)} MB"
+            else:
+                return f"{round(size_in_bytes / (1024 * 1024 * 1024), 3)} GB"
+
         try:
             video = mp.VideoFileClip(video_path)
             self.pbar.write(f"{video_path=}")
@@ -152,7 +130,7 @@ class VideoAnalyzer:
 
             data = VideoData(
                 path=video_path,
-                size=self._format_size(os.path.getsize(video_path)),
+                size=format_size(os.path.getsize(video_path)),
                 duration=video.duration,
                 resolution=video.size,
                 bitrate=ffprobe_output["bit_rate"],
@@ -166,7 +144,7 @@ class VideoAnalyzer:
         except Exception as error:
             data = VideoData(
                 path=video_path,
-                size=self._format_size(os.path.getsize(video_path)),
+                size=format_size(os.path.getsize(video_path)),
                 failed_reason=str(error),
             )
             self.pbar.write(f"Error processing {video_path}: {error}")
@@ -403,16 +381,6 @@ class VideoAnalyzer:
         # Reset the table data structure
         table_data.clear()
 
-    def _format_size(self, size_in_bytes):
-        if size_in_bytes < 1024:
-            return f"{size_in_bytes} bytes"
-        elif size_in_bytes < 1024 * 1024:
-            return f"{round(size_in_bytes / 1024, 3)} KB"
-        elif size_in_bytes < 1024 * 1024 * 1024:
-            return f"{round(size_in_bytes / (1024 * 1024), 3)} MB"
-        else:
-            return f"{round(size_in_bytes / (1024 * 1024 * 1024), 3)} GB"
-
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -441,7 +409,6 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     BASE_DIRECTORY = args.base.replace("\\", "/") if args.base else "./videos"
-    # BASE_DIRECTORY = "d:/CodeBase/videoThumb/videos"
     # 最多的数字个数为16
     MAX_THUMBNAILS_COUNT = 16
     # 每增加5分钟，数列中多一个数字
