@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import threading
 import subprocess
@@ -94,21 +95,50 @@ class VideoAnalyzer:
     def __init__(self, directory: str):
         self.directory = directory
         self.video_data: List[VideoData] = []
+        self.lock = threading.Lock()
 
+    # def analyze_videos(self) -> None:
+    #     """
+    #     start point for analyzing videos in the specified directory
+    #     """
+    #     video_files = []
+    #     for root, _, files in os.walk(self.directory):
+    #         for file in files:
+    #             if file.lower().endswith(tuple(SUPPORTED_FORMATS)):
+    #                 video_path = os.path.join(root, file).replace("\\", "/")
+    #                 video_files.append(video_path)
+
+    #     self.pbar = tqdm(video_files, desc="Analyzing")
+    #     for video_path in self.pbar:
+    #         self._extract_metadata(video_path)
     def analyze_videos(self) -> None:
         """
-        start point for analyzing videos in the specified directory
+        Start point for analyzing videos in the specified directory.
+        Uses ThreadPoolExecutor to parallelize metadata extraction.
         """
-        video_files = []
-        for root, _, files in os.walk(self.directory):
-            for file in files:
-                if file.lower().endswith(tuple(SUPPORTED_FORMATS)):
-                    video_path = os.path.join(root, file).replace("\\", "/")
-                    video_files.append(video_path)
+        video_files = [
+            os.path.join(root, file).replace("\\", "/")
+            for root, _, files in os.walk(self.directory)
+            for file in files
+            if file.lower().endswith(tuple(SUPPORTED_FORMATS))
+        ]
 
-        self.pbar = tqdm(video_files, desc="Analyzing")
-        for video_path in self.pbar:
-            self._extract_metadata(video_path)
+        self.pbar = tqdm(total=len(video_files), desc="Analyzing")
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = {
+                executor.submit(self._extract_metadata, video_path): video_path
+                for video_path in video_files
+            }
+
+            for future in as_completed(futures):
+                video_path = futures[future]
+                try:
+                    future.result()  # Can be used to raise exceptions if any occurred
+                except Exception as error:
+                    self.pbar.write(f"Error processing {video_path}: {error}")
+                finally:
+                    self.pbar.update(1)
+        self.pbar.close()
 
     def clean_thumbnails(self) -> None:
         """
@@ -182,16 +212,28 @@ class VideoAnalyzer:
             )
             self.pbar.write(f"Error processing {video_path}: {error}")
         finally:
-            self.video_data.append(data)
+            with self.lock:
+                self.video_data.append(data)
+                self._write_analyze_log()
 
-            # 写入json文件，作为log
-            with open(f"{self.directory}/analyze_log.json", "w", encoding="utf-8") as f:
-                json.dump(
-                    [data.__dict__ for data in self.video_data],
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                )
+            # # 写入json文件，作为log
+            # with open(f"{self.directory}/analyze_log.json", "w", encoding="utf-8") as f:
+            #     json.dump(
+            #         [data.__dict__ for data in self.video_data],
+            #         f,
+            #         indent=2,
+            #         ensure_ascii=False,
+            #     )
+
+    def _write_analyze_log(self) -> None:
+        log_path = os.path.join(self.directory, "analyze_log.json")
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(
+                [data.model_dump() for data in self.video_data],
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
 
     def _get_ffprobe_metadata(self, video_path: str) -> Dict[str, str]:
         def get_bit_rate(streams: list) -> str:
