@@ -2,7 +2,7 @@
 
 This simple local video tool is designed to help you efficiently organize video files. It serves as a convenient reference, especially when you're dealing with a large number of video files that are difficult to describe with filenames or other text-based descriptors. To ensure the final PDF document is visually appealing and easy to read, the tool generates up to 16 thumbnails by default. The generated PDF is labeled for easy navigation and searching.
 
-这个简单的视频整理工具旨在帮助您高效地组织本地视频文件。特别是在面对大量难以用文件名或其他文本描述的情况下，它可以作为一个便捷的参考工具。为了确保生成的 PDF 文档美观易读，默认情况下工具会生成多达 16 个缩略图，并对生成的 PDF 进行标记，以便于导航和搜索。
+这个简单的视频整理工具旨在帮助您高效地组织本地视频文件。特别是在面对大量难以用文件名或其他文本描述的情况下，它可以作为一个便捷的参考工具。为了确保生成的 PDF 文档美观易读，默认情况下工具会生成多达 16 个缩略图，并在 PDF 中添加文件名标签，以便于导航和搜索。
 
 # requirements
 

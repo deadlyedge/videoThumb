@@ -274,6 +274,7 @@ class VideoAnalyzer:
 
     def generate_pdf(self, output_path: str) -> None:
         """Generate a PDF report containing video analysis data and thumbnails.
+        this function has three sperate sub functions to add header, metadata and thumbnails table to the pdf.
 
         Args:
             output_path (str): Path where the PDF file will be saved
@@ -422,19 +423,25 @@ def parse_arguments():
     )
     parser.add_argument(
         "-e",
-        "--extension",
+        "--extensions",
         required=False,
-        help=f"add more filename extensions to parse as a video, default extension is {DEFAULT_FORMATS}, you could add a list like '-e webv,webp,...'.",
+        help=f"add more filename extensions to parse as a video, default extensions is {DEFAULT_FORMATS}, you could add a list like '-e webv,webp,...'.",
     )
     parser.add_argument(
-        "-k", "--keep", action="store_true", help="Keep the thumbnails after generating the PDF report. if not present, the thumbnails would be deleted."
+        "-k",
+        "--keep",
+        action="store_true",
+        help="Keep the thumbnails after generating the PDF report. if not present, the thumbnails would be deleted.",
     )
     parser.add_argument(
-        "-m", "--max", type=int, help="Maximum number of thumbnails to generate per video. if not present, the default value is 16."
+        "-m",
+        "--max",
+        type=int,
+        help="Maximum number of thumbnails to generate per video. if not present, the default value is 16.",
     )
-    # parser.add_argument(
-    #     "-o", "--output", required=True, help="Path to the output PDF file"
-    # )
+    parser.add_argument(
+        "-o", "--output", required=False, help="Path to the output PDF file, if not present, the output file would be in base direcotry."
+    )
     args = parser.parse_args()
     return args
 
@@ -444,27 +451,32 @@ if __name__ == "__main__":
 
     BASE_DIRECTORY = args.base.replace("\\", "/") if args.base else "./videos"
     # 最多的数字个数为16
-    MAX_THUMBNAILS_COUNT = argparse.Namespace().max if args.max else 16
+    MAX_THUMBNAILS_COUNT = args.max if args.max else 16
     # 每增加8分钟，数列中多一个数字
     INCREMENT_BY_SECONDS = 8 * 60
     # 缩略图清晰度，默认为4，建议不要超过8，因为会完全没有必要的占用空间。
     THUMBNAILS_DENSITY = 4
     # 支持的格式
     SUPPORTED_FORMATS = (
-        DEFAULT_FORMATS + args.extension.split(",")
-        if args.extension
+        DEFAULT_FORMATS + args.extensions.split(",")
+        if args.extensions
         else DEFAULT_FORMATS
     )
 
-    # 生成当前日期字符串
     current_date = datetime.now().strftime("%Y-%m-%d")
 
-    output_pdf = f"{BASE_DIRECTORY}/{BASE_DIRECTORY.split('/')[-1]}.report.{current_date}.pdf"  # Predefined output PDF path
+    pdf_file_name = f'{BASE_DIRECTORY.split('/')[-1]}.report.{current_date}.pdf'
+
+    output_pdf = (
+        os.path.join(args.output, pdf_file_name)
+        if args.output and os.path.isdir(os.path.dirname(args.output))
+        else f"{BASE_DIRECTORY}/{pdf_file_name}"
+    )  # Predefined output PDF path
 
     analyzer = VideoAnalyzer(BASE_DIRECTORY)
     analyzer.analyze_videos()
     analyzer.generate_pdf(output_pdf)
     if not args.keep:
         analyzer.clean_thumbnails()
-        
+
     print("PDF generated successfully.")
