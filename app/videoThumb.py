@@ -14,8 +14,11 @@ from pydantic import BaseModel
 
 
 DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v", ".mpeg", "mpg"]
-DEFAULT_HANG_TIME = 3
 DEFAULT_THUMBNAIL_PATH = "videoThumbs"
+
+# this is for optimizing of computer resource, don't change it if you not sure.
+DEFAULT_HANG_TIME = 3
+DEFAULT_MAX_THREADING_WORKERS = 4
 
 
 class VideoData(BaseModel):
@@ -123,22 +126,27 @@ class VideoAnalyzer:
             if file.lower().endswith(tuple(SUPPORTED_FORMATS))
         ]
 
-        self.pbar = tqdm(total=len(video_files), desc="Analyzing")
-        with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
-            futures = {
-                executor.submit(self._extract_metadata, video_path): video_path
-                for video_path in video_files
-            }
+        if len(video_files):
+            self.pbar = tqdm(total=len(video_files), desc="Analyzing")
+            with ThreadPoolExecutor(
+                max_workers=DEFAULT_MAX_THREADING_WORKERS
+            ) as executor:
+                futures = {
+                    executor.submit(self._extract_metadata, video_path): video_path
+                    for video_path in video_files
+                }
 
-            for future in as_completed(futures):
-                video_path = futures[future]
-                try:
-                    future.result()  # Can be used to raise exceptions if any occurred
-                except Exception as error:
-                    self.pbar.write(f"Error processing {video_path}: {error}")
-                finally:
-                    self.pbar.update(1)
-        self.pbar.close()
+                for future in as_completed(futures):
+                    video_path = futures[future]
+                    try:
+                        future.result()  # Can be used to raise exceptions if any occurred
+                    except Exception as error:
+                        self.pbar.write(f"Error processing {video_path}: {error}")
+                    finally:
+                        self.pbar.update(1)
+            self.pbar.close()
+        else:
+            print('NO video found, check BASE path you provided with "-b".')
 
     def clean_thumbnails(self) -> None:
         """

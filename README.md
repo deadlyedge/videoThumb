@@ -48,3 +48,4 @@ micorsoft copilot and openai
 
 ~~use analyze_log for pdf gen.~~
 
+add sort function before making PDF file.
