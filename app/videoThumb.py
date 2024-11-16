@@ -40,11 +40,11 @@ class VideoReaderWithTimeout:
         video: mp.VideoFileClip,
     ):
         self.video_path = video_path
-        self.video = video
         self.index = index
         self.time = time
-        self.thumbnail_path = None
         self.pbar = pbar
+        self.video = video
+        self.thumbnail_path = None
 
     def save_frame(self) -> None:
         filename = os.path.basename(self.video_path)
@@ -268,10 +268,12 @@ class VideoAnalyzer:
 
         thumbnails = []
         total_duration = video.duration
-        self.pbar.write(f"Total duration: {round(total_duration/60)} min.")
+        self.pbar.write(f"Total duration: {round(total_duration / 60)} min.")
 
-        for i, time in enumerate(generate_sequence(total_duration)):
-            thumbnail_path = read_with_timeout(video_path, i, time, self.pbar, video, 2)
+        for index, time in enumerate(generate_sequence(total_duration)):
+            thumbnail_path = read_with_timeout(
+                video_path, index, time, self.pbar, video
+            )
 
             thumbnails.append(thumbnail_path)
 
