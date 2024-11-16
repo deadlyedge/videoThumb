@@ -1,10 +1,29 @@
 # purpose
 
-This is a simple local video tool designed to help you organize videos efficiently. It serves as a handy reference, especially when dealing with a large number of video files that are difficult to describe using filenames or other textual or language-based descriptors. To ensure the final PDF document is visually appealing and easy to read, the tool generates up to 16 thumbnails by default. The resulting PDF is labeled for easy navigation and searching.
+This simple local video tool is designed to help you efficiently organize video files. It serves as a convenient reference, especially when you're dealing with a large number of video files that are difficult to describe with filenames or other text-based descriptors. To ensure the final PDF document is visually appealing and easy to read, the tool generates up to 16 thumbnails by default. The generated PDF is labeled for easy navigation and searching.
+
+这个简单的视频整理工具旨在帮助您高效地组织本地视频文件。特别是在面对大量难以用文件名或其他文本描述的情况下，它可以作为一个便捷的参考工具。为了确保生成的 PDF 文档美观易读，默认情况下工具会生成多达 16 个缩略图，并对生成的 PDF 进行标记，以便于导航和搜索。
 
 # requirements
 
 ffmpeg need to be installed, and ffprobe.exe should be in PATH, choco is recommanded way.
+
+# args
+
+
+| Option | Description  |
+| ------ | ------------ |
+| `-h`, `--help` | Show this help message and exit.  |
+| `-b BASE`, `--base BASE` | Base path of the video folder. If not present, the base path would be './videos'.   |
+| `-e EXTENSION`, `--extension EXTENSION` | Add more filename extensions to parse as a video. Default extensions are ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.m4v']. You could add a list like '-e webv,webp,...'. |
+| `-k`, `--keep` | Keep the thumbnails after generating the PDF report. If not present, the thumbnails would be deleted. |
+| `-m MAX`, `--max MAX` | Maximum number of thumbnails to generate per video. If not present, the default value is 16.   |
+
+
+
+# tips
+
+If a video file is not smooth or is corrupted, it might cause the program to freeze. You can try running the program again with target directory specifically to those files, which might resolve the issue.
 
 # problems
 
@@ -22,4 +41,3 @@ micorsoft copilot and openai
 
 use analyze_log for pdf gen.
 
-remove thumbnails folder after pdf was gened.

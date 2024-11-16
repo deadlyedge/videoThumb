@@ -107,6 +107,34 @@ class VideoAnalyzer:
         for video_path in self.pbar:
             self._extract_metadata(video_path)
 
+    def clean_thumbnails(self) -> None:
+        """
+        Removes the thumbnail directory for each video path based on
+        the entries in the analyze_log.json.
+        """
+        log_path = os.path.join(self.directory, "analyze_log.json")
+        if not os.path.exists(log_path):
+            self.pbar.write("No analyze_log.json found. Skipping cleanup.")
+            return
+
+        with open(log_path, "r", encoding="utf-8") as f:
+            video_logs = json.load(f)
+
+        for video_entry in video_logs:
+            video_path = video_entry["path"]
+            thumbnail_dir = os.path.join(os.path.dirname(video_path), "thumbnails")
+
+            if os.path.exists(thumbnail_dir):
+                for root, dirs, files in os.walk(thumbnail_dir, topdown=False):
+                    for name in files:
+                        os.remove(os.path.join(root, name))
+                    for name in dirs:
+                        os.rmdir(os.path.join(root, name))
+                os.rmdir(thumbnail_dir)
+                self.pbar.write(f"Removed thumbnails directory: {thumbnail_dir}")
+            else:
+                self.pbar.write(f"Thumbnails directory passed: {video_path}")
+
     def _extract_metadata(self, video_path: str) -> None:
         """
         use moviepy to extract metadata from the video file
@@ -152,7 +180,7 @@ class VideoAnalyzer:
             self.video_data.append(data)
 
             # 写入json文件，作为log
-            with open("analyze_log.json", "w", encoding="utf-8") as f:
+            with open(f"{self.directory}/analyze_log.json", "w", encoding="utf-8") as f:
                 json.dump(
                     [data.__dict__ for data in self.video_data],
                     f,
@@ -398,6 +426,12 @@ def parse_arguments():
         required=False,
         help=f"add more filename extensions to parse as a video, default extension is {DEFAULT_FORMATS}, you could add a list like '-e webv,webp,...'.",
     )
+    parser.add_argument(
+        "-k", "--keep", action="store_true", help="Keep the thumbnails after generating the PDF report. if not present, the thumbnails would be deleted."
+    )
+    parser.add_argument(
+        "-m", "--max", type=int, help="Maximum number of thumbnails to generate per video. if not present, the default value is 16."
+    )
     # parser.add_argument(
     #     "-o", "--output", required=True, help="Path to the output PDF file"
     # )
@@ -410,8 +444,8 @@ if __name__ == "__main__":
 
     BASE_DIRECTORY = args.base.replace("\\", "/") if args.base else "./videos"
     # 最多的数字个数为16
-    MAX_THUMBNAILS_COUNT = 16
-    # 每增加5分钟，数列中多一个数字
+    MAX_THUMBNAILS_COUNT = argparse.Namespace().max if args.max else 16
+    # 每增加8分钟，数列中多一个数字
     INCREMENT_BY_SECONDS = 8 * 60
     # 缩略图清晰度，默认为4，建议不要超过8，因为会完全没有必要的占用空间。
     THUMBNAILS_DENSITY = 4
@@ -430,4 +464,7 @@ if __name__ == "__main__":
     analyzer = VideoAnalyzer(BASE_DIRECTORY)
     analyzer.analyze_videos()
     analyzer.generate_pdf(output_pdf)
+    if not args.keep:
+        analyzer.clean_thumbnails()
+        
     print("PDF generated successfully.")
