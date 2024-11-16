@@ -12,8 +12,9 @@ from tqdm import tqdm
 from pydantic import BaseModel
 
 
-DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]
+DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v", ".mpeg", "mpg"]
 DEFAULT_HANG_TIME = 3
+DEFAULT_THUMBNAIL_PATH = "videoThumbs"
 
 
 class VideoData(BaseModel):
@@ -48,8 +49,10 @@ class VideoReaderWithTimeout:
     def save_frame(self) -> None:
         filename = os.path.basename(self.video_path)
         directory = os.path.dirname(self.video_path)
-        os.makedirs(f"{directory}/thumbnails", exist_ok=True)
-        thumbnail_path = f"{directory}/thumbnails/{filename}_thumb_{self.index}.jpg"
+        os.makedirs(f"{directory}/{DEFAULT_THUMBNAIL_PATH}", exist_ok=True)
+        thumbnail_path = (
+            f"{directory}/{DEFAULT_THUMBNAIL_PATH}/{filename}_thumb_{self.index}.jpg"
+        )
 
         try:
             self.video.save_frame(thumbnail_path, t=self.time)
@@ -122,7 +125,9 @@ class VideoAnalyzer:
 
         for video_entry in video_logs:
             video_path = video_entry["path"]
-            thumbnail_dir = os.path.join(os.path.dirname(video_path), "thumbnails")
+            thumbnail_dir = os.path.join(
+                os.path.dirname(video_path), DEFAULT_THUMBNAIL_PATH
+            )
 
             if os.path.exists(thumbnail_dir):
                 for root, dirs, files in os.walk(thumbnail_dir, topdown=False):
@@ -440,7 +445,10 @@ def parse_arguments():
         help="Maximum number of thumbnails to generate per video. if not present, the default value is 16.",
     )
     parser.add_argument(
-        "-o", "--output", required=False, help="Path to the output PDF file, if not present, the output file would be in base direcotry."
+        "-o",
+        "--output",
+        required=False,
+        help="Path to the output PDF file, if not present, the output file would be in base direcotry.",
     )
     args = parser.parse_args()
     return args
