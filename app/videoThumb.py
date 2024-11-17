@@ -21,7 +21,7 @@ DEFAULT_FONT_BOLD_PATH = "./app/NotoSerifSC-Bold.ttf"
 
 # this is for optimizing of computer resource, don't change it if you not sure.
 DEFAULT_HANG_TIME = 3
-DEFAULT_MAX_THREADING_WORKERS = 4  # tested in a 1000Mbps network drive
+DEFAULT_MAX_THREADING_WORKERS = 4  # tested in a 1Gbps network drive
 
 
 class VideoData(BaseModel):
