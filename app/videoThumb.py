@@ -16,7 +16,7 @@ from pydantic import BaseModel
 DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v", ".mpeg", "mpg"]
 DEFAULT_THUMBNAIL_PATH = "videoThumbs"
 DEFAULT_FONT_FAMILY = "Noto"
-DEFAULT_FONT_PATH = "./app/NotoSerifSC-Medium.ttf"
+DEFAULT_FONT_PATH = "./app/NotoSerifSC-Regular.ttf"
 DEFAULT_FONT_BOLD_PATH = "./app/NotoSerifSC-Bold.ttf"
 
 # this is for optimizing of computer resource, don't change it if you not sure.
