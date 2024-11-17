@@ -40,7 +40,7 @@ log: changed back to moviepy, it runs slower than with opencv, but with threadin
 
 # thanks
 
-micorsoft copilot and openai
+micorsoft copilot, openai and mistral/codestral, with continue and cline plugin, it helps a lot.
 
 # todo
 
@@ -48,4 +48,6 @@ micorsoft copilot and openai
 
 ~~use analyze_log for pdf gen.~~
 
-add sort function before making PDF file.
+~~add sort function before making PDF file.~~
+
+~~change fonts for PDF~~

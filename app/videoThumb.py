@@ -1,10 +1,10 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import threading
 import subprocess
 import argparse
 import json
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from moviepy import editor as mp
 from datetime import datetime
 from typing import List, Dict, Tuple
@@ -15,10 +15,13 @@ from pydantic import BaseModel
 
 DEFAULT_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v", ".mpeg", "mpg"]
 DEFAULT_THUMBNAIL_PATH = "videoThumbs"
+DEFAULT_FONT_FAMILY = "Noto"
+DEFAULT_FONT_PATH = "./app/NotoSerifSC-Medium.ttf"
+DEFAULT_FONT_BOLD_PATH = "./app/NotoSerifSC-Bold.ttf"
 
 # this is for optimizing of computer resource, don't change it if you not sure.
 DEFAULT_HANG_TIME = 3
-DEFAULT_MAX_THREADING_WORKERS = 4
+DEFAULT_MAX_THREADING_WORKERS = 4  # tested in a 1000Mbps network drive
 
 
 class VideoData(BaseModel):
@@ -82,7 +85,11 @@ def read_with_timeout(
 
     if thread.is_alive():
         # Timeout occurred
-        pbar.write(f"Timeout occurred while processing {video_path}")
+        red_color_start = "\033[91m"  # ANSI escape code for red
+        color_end = "\033[0m"  # ANSI escape code to reset
+        pbar.write(
+            f"{red_color_start}Timeout occurred while processing{color_end} {video_path}"
+        )
         return ""
     else:
         # Successfully read frame before timeout
@@ -100,20 +107,6 @@ class VideoAnalyzer:
         self.video_data: List[VideoData] = []
         self.lock = threading.Lock()
 
-    # def analyze_videos(self) -> None:
-    #     """
-    #     start point for analyzing videos in the specified directory
-    #     """
-    #     video_files = []
-    #     for root, _, files in os.walk(self.directory):
-    #         for file in files:
-    #             if file.lower().endswith(tuple(SUPPORTED_FORMATS)):
-    #                 video_path = os.path.join(root, file).replace("\\", "/")
-    #                 video_files.append(video_path)
-
-    #     self.pbar = tqdm(video_files, desc="Analyzing")
-    #     for video_path in self.pbar:
-    #         self._extract_metadata(video_path)
     def analyze_videos(self) -> None:
         """
         Start point for analyzing videos in the specified directory.
@@ -146,7 +139,7 @@ class VideoAnalyzer:
                         self.pbar.update(1)
             self.pbar.close()
         else:
-            print('NO video found, check BASE path you provided with "-b".')
+            raise Exception('NO video found, check BASE path you provided with "-b".')
 
     def clean_thumbnails(self) -> None:
         """
@@ -195,8 +188,11 @@ class VideoAnalyzer:
 
         try:
             video = mp.VideoFileClip(video_path)
-            self.pbar.write(f"{video_path=}")
-
+            orange_color_start = (
+                "\033[33m"  # ANSI escape code for orange (bright yellow)
+            )
+            color_end = "\033[0m"  # ANSI escape code to reset color
+            self.pbar.write(f"{orange_color_start}{video_path=}{color_end}")
             ffprobe_output = self._get_ffprobe_metadata(video_path)
 
             data = VideoData(
@@ -210,7 +206,6 @@ class VideoAnalyzer:
                 audio_codec=ffprobe_output["audio_codec"],
                 thumbnails=self._generate_thumbnails(video, video_path),
             )
-            video.close()
 
         except Exception as error:
             data = VideoData(
@@ -218,20 +213,17 @@ class VideoAnalyzer:
                 size=format_size(os.path.getsize(video_path)),
                 failed_reason=str(error),
             )
-            self.pbar.write(f"Error processing {video_path}: {error}")
+            red_color_start = "\033[91m"  # ANSI escape code for red
+            color_end = "\033[0m"  # ANSI escape code to reset color
+            self.pbar.write(
+                f"{red_color_start}Error processing {video_path}: {error}{color_end}"
+            )
         finally:
+            if "video" in locals():
+                video.close
             with self.lock:
                 self.video_data.append(data)
                 self._write_analyze_log()
-
-            # # 写入json文件，作为log
-            # with open(f"{self.directory}/analyze_log.json", "w", encoding="utf-8") as f:
-            #     json.dump(
-            #         [data.__dict__ for data in self.video_data],
-            #         f,
-            #         indent=2,
-            #         ensure_ascii=False,
-            #     )
 
     def _write_analyze_log(self) -> None:
         log_path = os.path.join(self.directory, "analyze_log.json")
@@ -336,18 +328,20 @@ class VideoAnalyzer:
         Args:
             output_path (str): Path where the PDF file will be saved
         """
+        self.video_data.sort(key=lambda x: x.path)
+
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.set_image_filter("DCTDecode")
         pdf.oversized_images = "DOWNSCALE"
         pdf.oversized_images_ratio = THUMBNAILS_DENSITY
-        pdf.add_font("msyh", "", "c:/windows/fonts/msyh.ttc", uni=True)
-        pdf.add_font("msyh", "B", "c:/windows/fonts/msyhbd.ttc", uni=True)
+        pdf.add_font(DEFAULT_FONT_FAMILY, "", DEFAULT_FONT_PATH)
+        pdf.add_font(DEFAULT_FONT_FAMILY, "B", DEFAULT_FONT_BOLD_PATH)
 
         self._add_report_header(pdf)
 
         for video in self.video_data:
-            pdf.set_font(family="msyh", style="", size=12)
+            pdf.set_font(style="", size=12)
             title = video.path.split("/")[-1]
             pdf.start_section(title, level=0)
 
@@ -364,7 +358,7 @@ class VideoAnalyzer:
             pdf (FPDF): The PDF document object
         """
         pdf.add_page()
-        pdf.set_font("msyh", size=16, style="B")
+        pdf.set_font(family=DEFAULT_FONT_FAMILY, size=16, style="B")
         pdf.cell(0, 10, "VideoThumb Report", ln=True, align="C")
         pdf.set_text_color(100)
         pdf.set_font(size=6)
@@ -377,7 +371,6 @@ class VideoAnalyzer:
         )
         pdf.set_section_title_styles(
             TextStyle(
-                font_family="msyh",
                 font_style="B",
                 font_size_pt=14,
                 color=(255, 152, 0),
@@ -534,9 +527,14 @@ if __name__ == "__main__":
     )  # Predefined output PDF path
 
     analyzer = VideoAnalyzer(BASE_DIRECTORY)
-    analyzer.analyze_videos()
-    analyzer.generate_pdf(output_pdf)
-    if not args.keep:
-        analyzer.clean_thumbnails()
 
-    print("PDF generated successfully.")
+    try:
+        analyzer.analyze_videos()
+        analyzer.generate_pdf(output_pdf)
+        if not args.keep:
+            analyzer.clean_thumbnails()
+
+        print("PDF generated successfully.")
+    except Exception as error:
+        print("Process terminated: ", error)
+        print("PDF generation failed.")
